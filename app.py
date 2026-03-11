@@ -91,5 +91,4 @@ fig = plot_daily_hours()
 if fig:
     st.plotly_chart(fig)
 else:
-
     st.info("No study sessions yet.")
