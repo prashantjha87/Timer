@@ -3,6 +3,7 @@ import time
 from datetime import datetime
 from database import init_db, save_session
 from analytics import plot_daily_hours
+from streamlit_autorefresh import st_autorefresh
 
 init_db()
 
@@ -10,9 +11,10 @@ st.set_page_config(page_title="Study Timer", layout="centered")
 
 st.title("📚 Study Time Tracker")
 
-# -----------------------------
-# Session State Initialization
-# -----------------------------
+
+# -------------------------
+# Session State
+# -------------------------
 
 if "start_time" not in st.session_state:
     st.session_state.start_time = None
@@ -23,13 +25,18 @@ if "elapsed" not in st.session_state:
 if "running" not in st.session_state:
     st.session_state.running = False
 
-if "last_tick" not in st.session_state:
-    st.session_state.last_tick = time.time()
+
+# -------------------------
+# Auto Refresh Every Second
+# -------------------------
+
+if st.session_state.running:
+    st_autorefresh(interval=1000, key="timer_refresh")
 
 
-# -----------------------------
-# Helper Function
-# -----------------------------
+# -------------------------
+# Time Format
+# -------------------------
 
 def format_time(seconds):
     hours = seconds // 3600
@@ -38,22 +45,20 @@ def format_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
-# -----------------------------
+# -------------------------
 # Timer Logic
-# -----------------------------
+# -------------------------
 
-if st.session_state.running:
-    now = time.time()
-    delta = int(now - st.session_state.last_tick)
-    if delta >= 1:
-        st.session_state.elapsed += delta
-        st.session_state.last_tick = now
-        st.rerun()
+if st.session_state.running and st.session_state.start_time:
+
+    now = datetime.now()
+    elapsed = int((now - st.session_state.start_time).total_seconds())
+    st.session_state.elapsed = elapsed
 
 
-# -----------------------------
-# Circular Timer Display
-# -----------------------------
+# -------------------------
+# Circular Timer UI
+# -------------------------
 
 time_display = format_time(st.session_state.elapsed)
 
@@ -86,25 +91,29 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# -----------------------------
-# Buttons
-# -----------------------------
+
+# -------------------------
+# Controls
+# -------------------------
 
 col1, col2, col3, col4 = st.columns(4)
 
 if col1.button("▶ Start Reading"):
+
     if not st.session_state.running:
-        st.session_state.running = True
         st.session_state.start_time = datetime.now()
-        st.session_state.last_tick = time.time()
+        st.session_state.running = True
+
 
 if col2.button("⏸ Pause"):
     st.session_state.running = False
+
 
 if col3.button("🔄 Refresh"):
     st.session_state.elapsed = 0
     st.session_state.running = False
     st.session_state.start_time = None
+
 
 if col4.button("✅ End Reading"):
 
@@ -125,9 +134,9 @@ if col4.button("✅ End Reading"):
         st.session_state.start_time = None
 
 
-# -----------------------------
-# Analytics Section
-# -----------------------------
+# -------------------------
+# Analytics
+# -------------------------
 
 st.divider()
 
