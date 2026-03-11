@@ -73,7 +73,7 @@ while st.session_state.running:
 
     placeholder.metric("Study Timer", f"{mins}:{secs:02d}")
 
-    st.experimental_rerun()
+    st.rerun()
 
 
 mins = st.session_state.elapsed // 60
@@ -91,4 +91,5 @@ fig = plot_daily_hours()
 if fig:
     st.plotly_chart(fig)
 else:
+
     st.info("No study sessions yet.")
