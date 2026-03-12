@@ -233,7 +233,7 @@ if st.sidebar.button("Logout"):
 # DASHBOARD
 # -------------------------
 
-st.markdown('<div class="main-title">📚 StudyOS Pro Dashboard</div>',unsafe_allow_html=True)
+st.markdown('<div class="main-title">📚 Neet PG Prep</div>',unsafe_allow_html=True)
 
 df=load_data(st.session_state.user)
 
@@ -427,5 +427,6 @@ if not df.empty:
     )
 
 else:
+
 
     st.info("No study sessions yet")
