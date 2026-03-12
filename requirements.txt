@@ -1,4 +1,6 @@
-streamlit
-pandas
-plotly
-streamlit-autorefresh
+streamlit>=1.32.0
+pandas>=2.0.0
+plotly>=5.18.0
+bcrypt>=4.0.1
+calplot>=0.1.7
+matplotlib>=3.7.0

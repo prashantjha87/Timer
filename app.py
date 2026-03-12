@@ -1,196 +1,431 @@
 import streamlit as st
-from datetime import datetime
-import math
-from database import init_db, save_session
-from analytics import plot_daily_hours
-from streamlit_autorefresh import st_autorefresh
+import sqlite3
+import pandas as pd
+import plotly.express as px
+import bcrypt
+import time
+import calplot
+import matplotlib.pyplot as plt
+from datetime import date, timedelta
 
-init_db()
-
-st.set_page_config(page_title="Study Timer", layout="centered")
-
-st.title("📚 Study Time Tracker")
-
-# -------------------------
-# Session State
-# -------------------------
-
-if "start_time" not in st.session_state:
-    st.session_state.start_time = None
-
-if "paused_time" not in st.session_state:
-    st.session_state.paused_time = 0
-
-if "running" not in st.session_state:
-    st.session_state.running = False
-
+st.set_page_config(page_title="StudyOS Pro", page_icon="📚", layout="wide")
 
 # -------------------------
-# Auto Refresh
+# CUSTOM STYLE
 # -------------------------
 
-st_autorefresh(interval=1000, key="timer_refresh")
+st.markdown("""
+<style>
 
+.main-title{
+font-size:40px;
+font-weight:700;
+text-align:center;
+margin-bottom:20px;
+}
+
+.metric-card{
+background:#1c1f26;
+padding:20px;
+border-radius:15px;
+text-align:center;
+box-shadow:0 4px 20px rgba(0,0,0,0.3);
+}
+
+.timer-card{
+background:#11151c;
+padding:40px;
+border-radius:20px;
+text-align:center;
+font-size:42px;
+font-weight:700;
+margin-top:20px;
+}
+
+.stButton>button{
+width:100%;
+height:50px;
+border-radius:12px;
+font-size:18px;
+}
+
+</style>
+""", unsafe_allow_html=True)
 
 # -------------------------
-# Time Formatter
+# DATABASE
 # -------------------------
 
-def format_time(seconds):
+conn = sqlite3.connect("studyos_pro.db", check_same_thread=False)
+cursor = conn.cursor()
 
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
-    secs = seconds % 60
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users(
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+username TEXT UNIQUE,
+password TEXT
+)
+""")
 
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS sessions(
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+username TEXT,
+date TEXT,
+subject TEXT,
+seconds INTEGER
+)
+""")
 
+conn.commit()
 
 # -------------------------
-# Timer Logic
+# HELPERS
 # -------------------------
 
-elapsed = st.session_state.paused_time
+def format_time(sec):
+    h=int(sec//3600)
+    m=int((sec%3600)//60)
+    s=int(sec%60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
 
-if st.session_state.running and st.session_state.start_time:
+def save_session(user,subject,seconds):
 
-    elapsed = st.session_state.paused_time + int(
-        (datetime.now() - st.session_state.start_time).total_seconds()
+    cursor.execute(
+    "INSERT INTO sessions(username,date,subject,seconds) VALUES(?,?,?,?)",
+    (user,str(date.today()),subject,int(seconds))
     )
 
+    conn.commit()
+
+def load_data(user):
+
+    return pd.read_sql(
+    "SELECT * FROM sessions WHERE username=?",
+    conn,
+    params=(user,)
+    )
+
+def get_streak(df):
+
+    if df.empty:
+        return 0
+
+    dates=sorted(df["date"].unique(),reverse=True)
+
+    streak=0
+    today=date.today()
+
+    for i,d in enumerate(dates):
+
+        if str(today - timedelta(days=i))==d:
+            streak+=1
+        else:
+            break
+
+    return streak
+
+def get_xp(total_seconds):
+
+    hours = total_seconds/3600
+    xp = int(hours*10)
+    level = xp//100 + 1
+
+    return xp,level
 
 # -------------------------
-# Circular Progress
+# SESSION STATE
 # -------------------------
 
-radius = 110
-circumference = 2 * math.pi * radius
+if "user" not in st.session_state:
+    st.session_state.user=None
 
-# rotate every 60 minutes
-progress = (elapsed % 3600) / 3600
-stroke_offset = circumference * (1 - progress)
+if "running" not in st.session_state:
+    st.session_state.running=False
 
-angle = progress * 360
-dot_x = 150 + radius * math.cos(math.radians(angle - 90))
-dot_y = 150 + radius * math.sin(math.radians(angle - 90))
+if "elapsed" not in st.session_state:
+    st.session_state.elapsed=0
 
-time_display = format_time(elapsed)
-
+if "start_time" not in st.session_state:
+    st.session_state.start_time=None
 
 # -------------------------
-# Circular Timer UI
+# LOGIN
 # -------------------------
 
-st.markdown(
-    f"""
-    <div style="display:flex; justify-content:center; margin-top:30px; margin-bottom:30px;">
-    <svg width="300" height="300">
+if st.session_state.user is None:
 
-        <circle
-            cx="150"
-            cy="150"
-            r="{radius}"
-            stroke="#2f3646"
-            stroke-width="14"
-            fill="none"
-        />
+    st.title("📚 StudyOS Pro")
 
-        <circle
-            cx="150"
-            cy="150"
-            r="{radius}"
-            stroke="#6c8cff"
-            stroke-width="14"
-            fill="none"
-            stroke-dasharray="{circumference}"
-            stroke-dashoffset="{stroke_offset}"
-            transform="rotate(-90 150 150)"
-            stroke-linecap="round"
-        />
+    tab1,tab2=st.tabs(["Login","Register"])
 
-        <circle
-            cx="{dot_x}"
-            cy="{dot_y}"
-            r="6"
-            fill="#6c8cff"
-        />
+    with tab1:
 
-        <text
-            x="150"
-            y="160"
-            text-anchor="middle"
-            font-size="34"
-            fill="white"
-            font-weight="bold"
-        >
-            {time_display}
-        </text>
+        u=st.text_input("Username")
+        p=st.text_input("Password",type="password")
 
-    </svg>
-    </div>
-    """,
-    unsafe_allow_html=True
+        if st.button("Login"):
+
+            res=cursor.execute(
+            "SELECT password FROM users WHERE username=?",
+            (u,)
+            ).fetchone()
+
+            if res and bcrypt.checkpw(p.encode(),res[0].encode()):
+
+                st.session_state.user=u
+                st.rerun()
+
+            else:
+
+                st.error("Invalid credentials")
+
+    with tab2:
+
+        u=st.text_input("New Username")
+        p=st.text_input("New Password",type="password")
+
+        if st.button("Register"):
+
+            hash_pw=bcrypt.hashpw(p.encode(),bcrypt.gensalt())
+
+            try:
+
+                cursor.execute(
+                "INSERT INTO users(username,password) VALUES(?,?)",
+                (u,hash_pw.decode())
+                )
+
+                conn.commit()
+
+                st.success("Account created")
+
+            except:
+
+                st.error("Username exists")
+
+    st.stop()
+
+# -------------------------
+# SIDEBAR
+# -------------------------
+
+st.sidebar.title("Study Settings")
+
+subject=st.sidebar.selectbox(
+"Subject",
+["Coding","Math","Reading","AI","Data Science","Revision"]
 )
 
+mode=st.sidebar.selectbox(
+"Mode",
+["Normal","Pomodoro 25/5"]
+)
+
+goal=st.sidebar.slider("Daily Goal (hours)",1,10,4)
+
+if st.sidebar.button("Logout"):
+
+    st.session_state.user=None
+    st.rerun()
 
 # -------------------------
-# Controls
+# DASHBOARD
 # -------------------------
 
-col1, col2, col3, col4 = st.columns(4)
+st.markdown('<div class="main-title">📚 StudyOS Pro Dashboard</div>',unsafe_allow_html=True)
 
-if col1.button("▶ Start Reading"):
+df=load_data(st.session_state.user)
 
-    if not st.session_state.running:
+today=str(date.today())
 
-        st.session_state.start_time = datetime.now()
-        st.session_state.running = True
+today_sec=df[df["date"]==today]["seconds"].sum() if not df.empty else 0
 
+streak=get_streak(df)
 
-if col2.button("⏸ Pause"):
+total_seconds=df["seconds"].sum() if not df.empty else 0
+
+xp,level=get_xp(total_seconds)
+
+focus_score = min(int((today_sec/3600)*20),100)
+
+col1,col2,col3,col4=st.columns(4)
+
+with col1:
+    st.metric("Today's Study",format_time(today_sec))
+
+with col2:
+    st.metric("Study Streak 🔥",f"{streak} days")
+
+with col3:
+    st.metric("Level 🏆",level)
+
+with col4:
+    st.metric("Focus Score 🧠",f"{focus_score}/100")
+
+st.progress(min(today_sec/(goal*3600),1))
+
+# -------------------------
+# TIMER
+# -------------------------
+
+def start():
+
+    st.session_state.running=True
+    st.session_state.start_time=time.time()
+
+def pause():
 
     if st.session_state.running:
 
-        st.session_state.paused_time = elapsed
-        st.session_state.running = False
+        st.session_state.elapsed+=time.time()-st.session_state.start_time
+        st.session_state.running=False
 
+def resume():
 
-if col3.button("🔄 Refresh"):
+    st.session_state.running=True
+    st.session_state.start_time=time.time()
 
-    st.session_state.start_time = None
-    st.session_state.paused_time = 0
-    st.session_state.running = False
+def end():
 
+    if st.session_state.running:
 
-if col4.button("✅ End Reading"):
+        st.session_state.elapsed+=time.time()-st.session_state.start_time
 
-    if elapsed > 0:
+    save_session(
+    st.session_state.user,
+    subject,
+    st.session_state.elapsed
+    )
 
-        end_time = datetime.now()
+    st.session_state.running=False
+    st.session_state.elapsed=0
 
-        save_session(
-            end_time.strftime("%Y-%m-%d %H:%M:%S"),
-            end_time.strftime("%Y-%m-%d %H:%M:%S"),
-            elapsed
-        )
+    st.success("Session saved")
 
-        st.success("Session Saved!")
+timer=st.empty()
 
-        st.session_state.start_time = None
-        st.session_state.paused_time = 0
-        st.session_state.running = False
+timer.markdown(
+f"<div class='timer-card'>{format_time(st.session_state.elapsed)}</div>",
+unsafe_allow_html=True
+)
 
+col1,col2,col3,col4=st.columns(4)
+
+with col1:
+    st.button("Start",on_click=start)
+
+with col2:
+    st.button("Pause",on_click=pause)
+
+with col3:
+    st.button("Resume",on_click=resume)
+
+with col4:
+    st.button("End",on_click=end)
+
+while st.session_state.running:
+
+    current=st.session_state.elapsed+(time.time()-st.session_state.start_time)
+
+    timer.markdown(
+    f"<div class='timer-card'>{format_time(current)}</div>",
+    unsafe_allow_html=True
+    )
+
+    if mode=="Pomodoro 25/5" and current>=1500:
+
+        st.warning("Pomodoro completed 🍅")
+
+        end()
+
+        break
+
+    time.sleep(1)
+
+    st.rerun()
 
 # -------------------------
-# Analytics
+# ANALYTICS
 # -------------------------
 
 st.divider()
+st.subheader("Study Analytics")
 
-st.subheader("📊 Study Analytics")
+if not df.empty:
 
-fig = plot_daily_hours()
+    df["hours"]=df["seconds"]/3600
 
-if fig:
-    st.plotly_chart(fig, use_container_width=True)
+    col1,col2=st.columns(2)
+
+    with col1:
+
+        daily=df.groupby("date")["hours"].sum().reset_index()
+
+        fig=px.line(daily,x="date",y="hours",title="Daily Study Trend")
+
+        st.plotly_chart(fig,use_container_width=True)
+
+    with col2:
+
+        subject_chart=df.groupby("subject")["hours"].sum().reset_index()
+
+        fig=px.pie(subject_chart,names="subject",values="hours",title="Subject Distribution")
+
+        st.plotly_chart(fig,use_container_width=True)
+
+# -------------------------
+# HEATMAP
+# -------------------------
+
+st.subheader("📅 Study Consistency Heatmap (Last 90 Days)")
+
+if not df.empty:
+
+    heat = df.groupby("date")["seconds"].sum()
+
+    heat.index = pd.to_datetime(heat.index)
+
+    # convert to minutes instead of hours
+    heat = heat / 60
+
+
+    start = pd.to_datetime(date.today() - timedelta(days=90))
+    end = pd.to_datetime(date.today())
+
+    all_days = pd.date_range(start, end)
+
+    heat = heat.reindex(all_days, fill_value=0)
+
+
+    fig, ax = calplot.calplot(
+        heat,
+        cmap="Greens",
+        figsize=(14,4),
+        edgecolor="#222",
+        linewidth=0.5,
+        vmin=0,
+        vmax=120,  # assume max 2 hours/day for scaling
+        suptitle="Study Minutes per Day"
+    )
+
+    st.pyplot(fig)
+
+# -------------------------
+# HISTORY
+# -------------------------
+
+st.subheader("Session History")
+
+if not df.empty:
+
+    df["duration"]=df["seconds"].apply(format_time)
+
+    st.dataframe(
+    df[["date","subject","duration"]],
+    use_container_width=True
+    )
+
 else:
-    st.info("No study sessions yet.")
+
+    st.info("No study sessions yet")
