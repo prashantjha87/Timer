@@ -214,7 +214,7 @@ st.sidebar.title("Study Settings")
 
 subject=st.sidebar.selectbox(
 "Subject",
-["Coding","Math","Reading","AI","Data Science","Revision"]
+["0 Revision","Anatomy","Physiology","Biochemistry","Pathology","Pharmacology","Microbiology","FMT","PSM","Medicine","Surgery","OBG","Pediatrics","Orthopedics","Ophthalmology","ENT","Dermatology","Psychiatry","Anesthesiology","Radiology"]
 )
 
 mode=st.sidebar.selectbox(
